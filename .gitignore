@@ -1,0 +1,7 @@
+build/
+out/
+target/
+.idea/
+*.iml
+*.log
+donation-service.jar

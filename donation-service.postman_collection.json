@@ -1,0 +1,173 @@
+{
+  "info": {
+    "_postman_id": "e4d12f08-4ef8-4c5b-bbe3-43c78c6c8977",
+    "name": "爱心积分服务",
+    "description": "纯 JDK 爱心积分服务的三个 HTTP 接口。请按 1、2、3 的顺序执行；第一个请求会自动把会话密钥保存到 collection variable sessionKey。",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:8001",
+      "type": "string"
+    },
+    {
+      "key": "patientId",
+      "value": "1",
+      "type": "string"
+    },
+    {
+      "key": "departmentId",
+      "value": "1234",
+      "type": "string"
+    },
+    {
+      "key": "points",
+      "value": "50",
+      "type": "string"
+    },
+    {
+      "key": "sessionKey",
+      "value": "",
+      "type": "string"
+    }
+  ],
+  "item": [
+    {
+      "name": "1. 获取患者会话",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('HTTP 状态码为 200', function () {",
+              "    pm.response.to.have.status(200);",
+              "});",
+              "",
+              "const sessionKey = pm.response.text().trim();",
+              "pm.test('会话密钥只包含小写字母和数字', function () {",
+              "    pm.expect(sessionKey).to.match(/^[a-z0-9]+$/);",
+              "});",
+              "",
+              "pm.collectionVariables.set('sessionKey', sessionKey);",
+              "console.log('已保存 sessionKey:', sessionKey);"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/{{patientId}}/session",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "{{patientId}}",
+            "session"
+          ]
+        },
+        "description": "创建或获取患者会话。患者在会话创建后的 10 分钟内重复请求会得到相同密钥。响应正文会自动保存到 collection variable：sessionKey。"
+      },
+      "response": []
+    },
+    {
+      "name": "2. 向科室提交爱心积分",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('HTTP 状态码为 204', function () {",
+              "    pm.response.to.have.status(204);",
+              "});",
+              "",
+              "pm.test('成功响应体为空', function () {",
+              "    pm.expect(pm.response.text()).to.eql('');",
+              "});"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "text/plain",
+            "type": "text"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{{points}}",
+          "options": {
+            "raw": {
+              "language": "text"
+            }
+          }
+        },
+        "url": {
+          "raw": "{{baseUrl}}/{{departmentId}}/donate?sessionkey={{sessionKey}}",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "{{departmentId}}",
+            "donate"
+          ],
+          "query": [
+            {
+              "key": "sessionkey",
+              "value": "{{sessionKey}}"
+            }
+          ]
+        },
+        "description": "使用第一个请求自动保存的 sessionKey，向 departmentId 指定的科室提交 points 积分。成功返回 204 No Content，这是正常的无响应体结果。"
+      },
+      "response": []
+    },
+    {
+      "name": "3. 查询科室爱心积分贡献榜",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('HTTP 状态码为 200', function () {",
+              "    pm.response.to.have.status(200);",
+              "});",
+              "",
+              "pm.test('榜单是空字符串或患者ID=积分格式', function () {",
+              "    const body = pm.response.text().trim();",
+              "    pm.expect(body === '' || /^\\d+=-?\\d+(,\\d+=-?\\d+)*$/.test(body)).to.be.true;",
+              "});",
+              "",
+              "console.log('TOP20 榜单:', pm.response.text());"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/{{departmentId}}/topdonors",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "{{departmentId}}",
+            "topdonors"
+          ]
+        },
+        "description": "查询 departmentId 指定科室的 TOP20 榜单。返回格式示例：1=50,2=30；没有数据时响应体为空。"
+      },
+      "response": []
+    }
+  ]
+}

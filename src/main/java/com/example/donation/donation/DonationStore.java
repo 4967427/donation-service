@@ -10,7 +10,11 @@ import java.util.concurrent.ConcurrentLinkedQueue;
 public final class DonationStore {
     private final ConcurrentHashMap<Integer, ConcurrentLinkedQueue<Donation>> byDepartment =
             new ConcurrentHashMap<>();
-    private final DonationRanking ranking = new DonationRanking();
+    private final DonationRanking ranking;
+
+    public DonationStore(int rankingSize) {
+        this.ranking = new DonationRanking(rankingSize);
+    }
 
     /**
      * 追加一次独立捐赠。该操作不会覆盖或合并患者以前的记录。
@@ -21,7 +25,7 @@ public final class DonationStore {
     }
 
     /**
-     * 查询指定科室的 TOP20 榜单。
+     * 查询指定科室的榜单，最大条数由服务配置决定。
      */
     public String topDonorsCsv(int departmentId) {
         ConcurrentLinkedQueue<Donation> records = byDepartment.get(departmentId);

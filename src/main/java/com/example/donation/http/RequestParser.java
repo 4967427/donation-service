@@ -14,9 +14,13 @@ import java.nio.charset.StandardCharsets;
  * 请求体最多读取 64 字节，可防止客户端发送超大内容长期占用堆内存。</p>
  */
 final class RequestParser {
-    private static final int MAX_REQUEST_BODY_BYTES = 64;
+    private final int maxRequestBodyBytes;
 
-    private RequestParser() {
+    RequestParser(int maxRequestBodyBytes) {
+        if (maxRequestBodyBytes <= 0) {
+            throw new IllegalArgumentException("maxRequestBodyBytes must be greater than zero");
+        }
+        this.maxRequestBodyBytes = maxRequestBodyBytes;
     }
 
     /**
@@ -24,7 +28,7 @@ final class RequestParser {
      *
      * @throws BadRequestException 请求体为空、超过大小上限或不是合法 {@code int} 时抛出
      */
-    static int readPoints(InputStream input) throws IOException, BadRequestException {
+    int readPoints(InputStream input) throws IOException, BadRequestException {
         String value = readSmallBody(input).trim();
         if (value.isEmpty()) {
             throw new BadRequestException("request body must be an integer");
@@ -37,7 +41,7 @@ final class RequestParser {
     }
 
     /** 拒绝本不允许携带查询参数的接口请求。 */
-    static void requireNoQuery(URI uri) throws BadRequestException {
+    void requireNoQuery(URI uri) throws BadRequestException {
         if (uri.getRawQuery() != null) {
             throw new BadRequestException("unexpected query string");
         }
@@ -49,7 +53,7 @@ final class RequestParser {
      * <p>例如捐赠接口只接受 {@code sessionkey=xxx}；重复参数、额外参数、空值和
      * 非法 URL 编码都会被视为错误，避免参数歧义。</p>
      */
-    static String singleQueryParameter(URI uri, String expectedName) throws BadRequestException {
+    String singleQueryParameter(URI uri, String expectedName) throws BadRequestException {
         String rawQuery = uri.getRawQuery();
         if (rawQuery == null || rawQuery.isEmpty()) {
             throw new BadRequestException("missing " + expectedName);
@@ -65,20 +69,7 @@ final class RequestParser {
         return decode(parts[1]);
     }
 
-    /**
-     * 在拒绝无效会话前有限地消费请求体，便于底层 HTTP 实现正确结束当前交换。
-     * 该方法同样受大小上限保护，不会无界读取恶意请求。
-     */
-    static void drainSmallBody(InputStream input) throws IOException {
-        byte[] buffer = new byte[256];
-        int total = 0;
-        int read;
-        while (total <= MAX_REQUEST_BODY_BYTES && (read = input.read(buffer)) != -1) {
-            total += read;
-        }
-    }
-
-    private static String readSmallBody(InputStream input) throws IOException, BadRequestException {
+    private String readSmallBody(InputStream input) throws IOException, BadRequestException {
         ByteArrayOutputStream output = new ByteArrayOutputStream();
         byte[] buffer = new byte[32];
         int total = 0;
@@ -86,7 +77,7 @@ final class RequestParser {
         while ((read = input.read(buffer)) != -1) {
             total += read;
             // 先累计再写入，确保超限内容不会进入内存缓冲区。
-            if (total > MAX_REQUEST_BODY_BYTES) {
+            if (total > maxRequestBodyBytes) {
                 throw new BadRequestException("request body is too large");
             }
             output.write(buffer, 0, read);

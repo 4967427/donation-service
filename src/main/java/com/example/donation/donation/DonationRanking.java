@@ -13,13 +13,20 @@ import java.util.Map;
  * <ol>
  *   <li>遍历指定科室的全部独立捐赠记录；</li>
  *   <li>按患者归并，只取其单次捐赠最高值；</li>
- *   <li>按积分降序、患者 ID 升序排序并截取前 20 名。</li>
+ *   <li>按积分降序、患者 ID 升序排序并截取配置的 TopN 数量。</li>
  * </ol>
  *
  * <p>积分相同时使用患者 ID 作为次级排序键，使相同数据每次查询都得到稳定结果。</p>
  */
 final class DonationRanking {
-    private static final int MAX_RANKING_SIZE = 20;
+    private final int rankingSize;
+
+    DonationRanking(int rankingSize) {
+        if (rankingSize <= 0) {
+            throw new IllegalArgumentException("rankingSize must be greater than zero");
+        }
+        this.rankingSize = rankingSize;
+    }
 
     /**
      * 将捐赠记录计算为接口要求的 {@code 患者ID=积分,患者ID=积分} CSV 字符串。
@@ -38,7 +45,7 @@ final class DonationRanking {
 
     private String format(List<Map.Entry<Integer, Integer>> ranking) {
         StringBuilder csv = new StringBuilder();
-        int limit = Math.min(MAX_RANKING_SIZE, ranking.size());
+        int limit = Math.min(rankingSize, ranking.size());
         for (int i = 0; i < limit; i++) {
             if (i > 0) {
                 csv.append(',');

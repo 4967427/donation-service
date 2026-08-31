@@ -1,14 +1,17 @@
 package com.example.donation;
 
+import com.example.donation.config.ServerConfig;
 import com.example.donation.donation.DonationStore;
 import com.example.donation.http.DonationHttpHandler;
+import com.example.donation.service.DonationService;
+import com.example.donation.service.RankingService;
+import com.example.donation.service.SessionService;
 import com.example.donation.session.SessionManager;
 import com.sun.net.httpserver.HttpServer;
 
 import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.time.Clock;
-import java.time.Duration;
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
@@ -18,41 +21,53 @@ import java.util.concurrent.TimeUnit;
  *
  * <p>本类只负责组装依赖、创建 JDK 原生 {@link HttpServer}、管理工作线程池，
  * 以及启动和停止服务。具体的 HTTP 协议处理、会话管理和捐赠数据处理分别交给
- * {@link DonationHttpHandler}、{@link SessionManager} 和 {@link DonationStore}，
+ * {@link DonationHttpHandler}、业务 Service、{@link SessionManager} 和 {@link DonationStore}，
  * 避免入口类承担业务逻辑。</p>
  *
  * <p>服务实现了 {@link AutoCloseable}，因此测试和嵌入式调用可以使用
  * try-with-resources 或显式调用 {@link #close()} 可靠释放监听端口和工作线程。</p>
  */
 public final class DonationServer implements AutoCloseable {
-    private static final int DEFAULT_PORT = 8001;
-    private static final Duration SESSION_TTL = Duration.ofMinutes(10);
     private final HttpServer server;
     private final ThreadPoolExecutor executor;
 
     public DonationServer(int port) throws IOException {
-        this(port, Clock.systemUTC());
+        this(ServerConfig.builder().port(port).build(), Clock.systemUTC());
+    }
+
+    /** 使用完整配置创建服务，便于部署和性能测试覆盖默认参数。 */
+    public DonationServer(ServerConfig config) throws IOException {
+        this(config, Clock.systemUTC());
     }
 
     /**
      * 供测试使用的构造方法。注入 {@link Clock} 后，可以在不真实等待十分钟的情况下
      * 测试会话过期行为。
      */
-    DonationServer(int port, Clock clock) throws IOException {
-        this.executor = createExecutor();
-        this.server = HttpServer.create(new InetSocketAddress(port), 128);
+    DonationServer(ServerConfig config, Clock clock) throws IOException {
+        this.executor = createExecutor(config);
+        this.server = HttpServer.create(new InetSocketAddress(config.port()), config.socketBacklog());
         this.server.setExecutor(executor);
+        DonationStore store = new DonationStore(config.rankingSize());
+        SessionService sessionService = new SessionService(
+                new SessionManager(clock, config.sessionTtl()));
         this.server.createContext("/", new DonationHttpHandler(
-                new SessionManager(clock, SESSION_TTL), new DonationStore()));
+                sessionService,
+                new DonationService(sessionService, store),
+                new RankingService(store),
+                config.maxRequestBodyBytes()));
     }
 
-    private static ThreadPoolExecutor createExecutor() {
-        int processors = Runtime.getRuntime().availableProcessors();
-        int threads = Math.max(4, Math.min(32, processors * 2));
+    private static ThreadPoolExecutor createExecutor(ServerConfig config) {
         // 固定线程数和有界队列共同限制资源占用；队列满时由提交请求的线程执行任务，
         // 形成自然背压，而不是继续无限创建线程或无限堆积请求。
-        return new ThreadPoolExecutor(threads, threads, 0L, TimeUnit.MILLISECONDS,
-                new ArrayBlockingQueue<>(1024), new ThreadPoolExecutor.CallerRunsPolicy());
+        return new ThreadPoolExecutor(
+                config.workerThreads(),
+                config.workerThreads(),
+                0L,
+                TimeUnit.MILLISECONDS,
+                new ArrayBlockingQueue<>(config.queueCapacity()),
+                new ThreadPoolExecutor.CallerRunsPolicy());
     }
 
     /** 开始监听构造时指定的端口。 */
@@ -75,11 +90,10 @@ public final class DonationServer implements AutoCloseable {
     }
 
     /**
-     * 命令行入口。第一个参数可指定端口，未指定时使用 8001。
+     * 命令行入口。支持单个端口参数或 {@code --name=value} 完整配置参数。
      */
     public static void main(String[] args) throws Exception {
-        int port = args.length == 0 ? DEFAULT_PORT : Integer.parseInt(args[0]);
-        DonationServer application = new DonationServer(port);
+        DonationServer application = new DonationServer(ServerConfig.fromArgs(args));
         // JVM 正常退出或收到 Ctrl+C 时释放监听端口与线程池。
         Runtime.getRuntime().addShutdownHook(new Thread(application::close, "shutdown-hook"));
         application.start();
